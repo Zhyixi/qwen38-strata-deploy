@@ -3,9 +3,10 @@
 本專案保存 2026-10-04 實際驗證通過的部署方法：使用 Strata 推理引擎執行
 ISTA-DASLab 製作的 `Qwen3.8-Flash-Next` GSQ-RCO `IQ2_XS` GGUF 量化模型。
 
-Qwen 官方模型卡將核心語言模型列為 125B、每個 token 啟用約 6B，另有
-51B n-gram embedding 與 4B MTP；量化頁的整體 metadata 標示約 177B。
-本專案測試的是這套完整權重，不是 27B 縮小版。GSQ 產生高精度低位元
+這是官方所稱的**約 180B 總系統**：包含 125B 核心 MoE 語言模型（每個
+token 啟用約 6B）、51B n-gram embedding 與 4B MTP。量化頁 metadata
+顯示約 177B，差異來自計數與四捨五入口徑。本專案測試的是這套完整權重，
+不是 27B 縮小版。GSQ 產生高精度低位元
 scalar quantization，RCO 再依各 tensor 敏感度於固定容量內配置不同精度；
 Strata 則在推理時把 experts 分層放入 RAM 與 GPU cache。技術細節、來源與
 驗證矩陣請見 [REPORT.md](REPORT.md)。
@@ -88,15 +89,44 @@ RESERVE_MIB=36864 bash set-vram-reserve.sh  # 48 GB L20/A6000
 bash test-api.sh
 ```
 
+測試 LangChain `ChatOpenAI` 相容性：
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-langchain.txt
+STRATA_BASE_URL=http://127.0.0.1:8080/v1 python test-langchain.py
+```
+
 ## GPU 相容性
 
-公開映像同時編譯 CUDA 架構 8.6 與 8.9：
+公司正式目標是 RTX A6000 與 NVIDIA L20。公開映像同時編譯 CUDA 架構
+8.6 與 8.9：
 
-- RTX A6000：compute capability 8.6
-- NVIDIA L4、L20：compute capability 8.9
+- RTX A6000：48 GB、Ampere、compute capability 8.6
+- NVIDIA L20：48 GB、Ada、compute capability 8.9
+
+本次因雲端未取得公司同型卡，使用同為 Ada 8.9 的 L4 實測，因此可驗證 L20
+所需的 CUDA 程式碼路徑、容器啟動與功能；但 L4 不能代替 L20 的精確吞吐量
+與壓力測試。A6000 的 8.6 程式碼已成功建入映像，但尚未在實體 8.6 GPU
+執行；若租不到 A6000，可先用同為 Ampere 8.6 的 A10、RTX A5000、A4000
+或 RTX 3090 做移植測試，最終仍應在公司的 A6000 驗收。
+
+硬體規格可交叉查核 [NVIDIA CUDA GPU compute capability 表](https://developer.nvidia.com/cuda/gpus)、
+[RTX A6000 官方規格](https://www.nvidia.com/en-us/products/workstations/rtx-a6000/)
+與 [NVIDIA Ada vGPU 規格表](https://docs.nvidia.com/ai-enterprise/release-7/latest/infra-software/vgpu/reference/ada-lovelace.html)。
 
 10 GB 或 12 GB 的 Ampere/Ada GPU 可使用相同映像，但目前實測下限約為
 12 GB VRAM。更小的 GPU 可能可運行，但尚未驗證，不應直接當作正式環境承諾。
+
+## OpenAI 與 LangChain 相容性
+
+Strata 提供 OpenAI Chat Completions 相容端點；LangChain 可透過
+`langchain-openai` 的 `ChatOpenAI(base_url=...)` 連接，不必更改既有 chain
+的主要介面。直接 HTTP 的非串流聊天已實測通過；`test-langchain.py` 可在
+服務啟動後驗證 LangChain invoke 與選用的 streaming。工具呼叫、結構化輸出、
+async、高併發與完整 callback 行為仍應用公司的實際 chain 另做驗收。
+設定方式可參考 [LangChain ChatOpenAI 官方文件](https://docs.langchain.com/oss/python/integrations/chat/openai)。
 
 ## 回答品質觀察
 
