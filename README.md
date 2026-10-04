@@ -1,26 +1,35 @@
-# Qwen3.8-Flash-Next with Strata
+# Qwen3.8-Flash-Next Strata 低資源部署
 
-This repository preserves the deployment path that was verified on 2026-10-04.
-It runs the ISTA-DASLab `IQ2_XS` GSQ-RCO GGUF build of
-`Qwen/Qwen3.8-Flash-Next` with the Strata inference engine.
+本專案保存 2026-10-04 實際驗證通過的部署方法：使用 Strata 推理引擎執行
+ISTA-DASLab 製作的 `Qwen3.8-Flash-Next` GSQ-RCO `IQ2_XS` GGUF 量化模型。
 
-## Verified target
+## 已驗證需求
 
-- 64 GB system RAM
-- About 12 GB usable VRAM
+- 64 GB 系統記憶體
+- 約 12 GB 可用 VRAM
 - Ubuntu 22.04 x86_64
-- NVIDIA driver 580 or newer
-- Docker with NVIDIA Container Toolkit
-- At least 100 GB free local disk; 200 GB is recommended
+- NVIDIA 580 或更新版驅動
+- Docker 與 NVIDIA Container Toolkit
+- 至少 100 GB 可用磁碟；建議 200 GB
 
-The cloud verification used one NVIDIA L4 (24 GB) and configured Strata with
-`--vram-reserve-mib 12288`. This left 12,046 MiB free and limited the Strata
-process to 10,444 MiB, which demonstrates operation inside a 12 GB VRAM budget.
-See [REPORT.md](REPORT.md) for the measured results.
+雲端測試使用一張 24 GB NVIDIA L4，並設定
+`--vram-reserve-mib 12288`，刻意保留 12 GB VRAM。Strata 程序實際使用
+10,444 MiB，GPU 仍有 12,046 MiB 可用，因此證明此配置可在約 12 GB VRAM
+預算內運作。完整數據請見 [REPORT.md](REPORT.md)。
 
-## Quick start
+## 為何大模型能使用較少 VRAM
 
-Run these commands on a new Ubuntu GPU host:
+1. `IQ2_XS` 低位元量化大幅縮小模型權重。
+2. Strata 將約 33 GiB 專家權重放在 64 GB 系統 RAM，而非全部塞入 GPU。
+3. GPU 只快取目前較需要的專家；本次快取 3,672 個專家，約 4.94 GiB。
+4. KV cache 使用 INT8，且測試關閉視覺功能，進一步降低 VRAM 用量。
+
+這不是把模型縮成較小參數版本，而是讓完整 MoE 模型的權重在 RAM 與 GPU
+之間分層存放。代價是速度與高併發能力可能低於全模型常駐 VRAM 的部署。
+
+## 快速啟動
+
+在新的 Ubuntu GPU 主機執行：
 
 ```bash
 git clone https://github.com/Zhyixi/qwen38-strata-deploy.git
@@ -29,79 +38,81 @@ bash install-host.sh
 sudo reboot
 ```
 
-After reconnecting, pull the prebuilt multi-GPU image and start it:
+重新連線後啟動：
 
 ```bash
 cd qwen38-strata-deploy
 bash run-strata.sh
 ```
 
-`run-strata.sh` defaults to
-`ghcr.io/zhyixi/qwen38-strata-deploy:cuda13-sm86-sm89`. To build locally instead:
+預設公開映像：
+
+```text
+ghcr.io/zhyixi/qwen38-strata-deploy:cuda13-sm86-sm89
+```
+
+若要自行建置：
 
 ```bash
 bash build-strata.sh
 STRATA_IMAGE=strata:qwen38 bash run-strata.sh
 ```
 
-The first start compiles the Strata kernels and downloads roughly 68 GB of
-main GGUF weights plus about 6.5 GB of MTP data. Follow progress with:
+首次啟動會下載約 68 GB 主模型與約 6.5 GiB MTP 資料，並編譯 Strata
+核心。可用以下指令查看進度：
 
 ```bash
 sudo docker logs -f strata-qwen38
 ```
 
-On a physical 12 GB GPU, Strata's automatic cache sizing should use the
-available card memory. To emulate a 12 GB card on a 24 GB or 48 GB GPU after
-the initial setup has generated its JSON config:
+## VRAM 限制重現
+
+實體 12 GB GPU 會由 Strata 自動依可用空間配置快取。若要在較大的 GPU
+模擬 12 GB 預算，首次啟動產生設定檔後執行：
 
 ```bash
 RESERVE_MIB=12288 bash set-vram-reserve.sh  # 24 GB L4
 RESERVE_MIB=36864 bash set-vram-reserve.sh  # 48 GB L20/A6000
 ```
 
-Then test the local OpenAI-compatible API:
+測試 OpenAI 相容 API：
 
 ```bash
 bash test-api.sh
 ```
 
-## GPU portability
+## GPU 相容性
 
-The published image and `build-strata.sh` include CUDA architectures 8.6 and
-8.9 by default:
+公開映像同時編譯 CUDA 架構 8.6 與 8.9：
 
-- RTX A6000: compute capability 8.6
-- NVIDIA L4 and L20: compute capability 8.9
+- RTX A6000：compute capability 8.6
+- NVIDIA L4、L20：compute capability 8.9
 
-For a smaller host-specific image, set `CUDA_ARCHITECTURES=86` or
-`CUDA_ARCHITECTURES=89` before building.
+10 GB 或 12 GB 的 Ampere/Ada GPU 可使用相同映像，但目前實測下限約為
+12 GB VRAM。更小的 GPU 可能可運行，但尚未驗證，不應直接當作正式環境承諾。
 
-VRAM size and CUDA architecture are separate concerns. A 10 GB or 12 GB
-Ampere/Ada card can use the same image; Strata automatically reduces the GPU
-expert cache and uses more of the 64 GB host RAM. The verified floor is about
-12 GB VRAM. Cards below that may work but are not claimed as verified by this
-report and should be tested with `test-api.sh` before production use.
+## 回答品質觀察
 
-## Network safety
+測試問題要求模型用繁體中文列出三點量化降低部署資源的原因。回答連貫、
+格式正確且三點內容不同，代表服務與基本推理可正常使用。但這只是單題功能
+測試，沒有與其他模型進行相同題庫、盲測或評分，因此目前不能客觀宣稱它
+「比較聰明」。後續應加入知識、推理、程式與 RAG 任務的固定評測集。
 
-The default command publishes the API only on `127.0.0.1:8080`. It does not
-create a public URL or firewall rule. For a real external service, keep this
-loopback binding and put a TLS reverse proxy or authenticated tunnel in front
-of it. Do not expose Strata directly without an API key.
+## 網路安全
 
-## GCP recreation reference
+預設僅綁定 `127.0.0.1:8080`，不會建立公開網址或防火牆規則。正式服務
+應在前方放置 TLS 反向代理或驗證通道，並設定 API key，不要直接公開 8080。
 
-The verified VM used:
+## GCP 重建參考
 
-- Project: `gen-lang-client-0321260816` (`compal`)
-- Zone: `us-central1-b`
-- Machine: `g2-standard-16`
-- Accelerator: one NVIDIA L4
-- Boot disk: 200 GB `pd-ssd`
-- Image: Ubuntu 22.04 LTS
+原始驗證環境：
 
-Equivalent `gcloud` creation command:
+- 專案：`gen-lang-client-0321260816`（`compal`）
+- 區域：`us-central1-b`
+- 機型：`g2-standard-16`
+- GPU：一張 NVIDIA L4
+- 開機磁碟：200 GB `pd-ssd`
+- 系統：Ubuntu 22.04 LTS
 
 ```bash
 gcloud compute instances create qwen38-strata-test \
@@ -117,6 +128,4 @@ gcloud compute instances create qwen38-strata-test \
   --boot-disk-type=pd-ssd
 ```
 
-Creating this VM starts billable resources. Delete the VM, its boot disk, any
-snapshots, snapshot schedules, and reserved IP addresses when the test is
-finished. The original verification environment was fully deleted.
+建立 VM 會開始計費。原始測試 VM、磁碟、快照排程與保留 IP 均已刪除。
