@@ -3,6 +3,13 @@
 本專案保存 2026-10-04 實際驗證通過的部署方法：使用 Strata 推理引擎執行
 ISTA-DASLab 製作的 `Qwen3.8-Flash-Next` GSQ-RCO `IQ2_XS` GGUF 量化模型。
 
+Qwen 官方模型卡將核心語言模型列為 125B、每個 token 啟用約 6B，另有
+51B n-gram embedding 與 4B MTP；量化頁的整體 metadata 標示約 177B。
+本專案測試的是這套完整權重，不是 27B 縮小版。GSQ 產生高精度低位元
+scalar quantization，RCO 再依各 tensor 敏感度於固定容量內配置不同精度；
+Strata 則在推理時把 experts 分層放入 RAM 與 GPU cache。技術細節、來源與
+驗證矩陣請見 [REPORT.md](REPORT.md)。
+
 ## 已驗證需求
 
 - 64 GB 系統記憶體
