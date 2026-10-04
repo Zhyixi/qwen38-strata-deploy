@@ -174,6 +174,18 @@ This standalone repository rebuilds the same image from the same pinned Strata
 commit and CUDA architecture list. Its public package is
 `ghcr.io/zhyixi/qwen38-strata-deploy:cuda13-sm86-sm89`.
 
+Standalone publication verification:
+
+- GitHub Actions run: `37216682848`
+- Release tag: `v1.0.0`
+- Result: successful in 10 minutes 13 seconds
+- Index digest: `sha256:50b05e55e25e7a65f84258e9c500c14613859eef70c19667442b3ccbe3abade4`
+- Runtime manifest: `linux/amd64`
+- Runtime digest: `sha256:9cb4f20ba944802764fc6c0b8c3d3990c3f295e11f2d3d966cef96a5f4885f6f`
+
+The manifest was read successfully with a fresh empty Docker configuration,
+confirming that the package can be discovered without a GitHub login.
+
 ## Cloud cleanup
 
 After the report and reusable image were published, the temporary GCP test
